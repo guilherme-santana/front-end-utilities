@@ -90,6 +90,10 @@ export default function App() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<'todos' | 'mais_clicados' | 'recentes'>('todos');
 
+  // Loading and error states for real API integration
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
   // Notification simulator
   const [notifications, setNotifications] = useState(3);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -117,9 +121,11 @@ export default function App() {
     }
   };
 
-  // Submit and Shorten the URL
+  // Submit and Shorten the URL with Real API Integration
   const handleShortenUrl = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (isLoading) return;
 
     if (!longUrl.trim()) {
       alert('Por favor, insira uma URL válida.');
@@ -136,56 +142,71 @@ export default function App() {
       return;
     }
 
-    // Determine final custom alias
-    const aliasValue = customAlias.trim()
-      ? customAlias.trim().replace(/\s+/g, '-').toLowerCase()
-      : Math.random().toString(36).substring(2, 8);
+    setIsLoading(true);
+    setError(null);
+    setShortenedResult(null);
 
-    // Check if alias is already used in our records
-    const isDuplicate = linksList.some(link => link.alias === aliasValue);
-    if (isDuplicate) {
-      alert(`O alias "${aliasValue}" já está sendo usado. Por favor use outro.`);
-      return;
-    }
-
-    const shortUrl = `https://hub.dev/${aliasValue}`;
-
-    // Create the new shortened object
-    const newLink: ShortenedLink = {
-      id: Date.now().toString(),
-      alias: aliasValue,
-      originalUrl: urlToProcess,
-      shortenedUrl: shortUrl,
-      createdAt: 'Agora mesmo',
-      clicks: 0,
-      uniqueClicks: 0
-    };
-
-    // Generate QR Code as DataURL
     try {
-      const qrDataUrl = await QRCode.toDataURL(shortUrl, {
-        width: 150,
-        margin: 1,
-        color: {
-          dark: '#1e1b4b',
-          light: '#ffffff'
-        }
+      const response = await fetch(`http://localhost:8080/shorten?url=${encodeURIComponent(urlToProcess)}`, {
+        method: 'POST',
       });
-      setQrCodeDataUrl(qrDataUrl);
-    } catch (err) {
+
+      if (!response.ok) {
+        throw new Error(`Erro na API (${response.status}): Não foi possível encurtar a URL no momento.`);
+      }
+
+      const data = await response.json();
+      const shortUrl = data.shortUrl || data.shortenedUrl || data.url;
+
+      if (!shortUrl) {
+        throw new Error('A resposta do servidor não continha uma URL encurtada válida.');
+      }
+
+      // Extract alias from shortUrl (e.g., path suffix)
+      const aliasValue = shortUrl.split('/').pop() || 'link';
+
+      // Create the new shortened object
+      const newLink: ShortenedLink = {
+        id: Date.now().toString(),
+        alias: aliasValue,
+        originalUrl: urlToProcess,
+        shortenedUrl: shortUrl,
+        createdAt: 'Agora mesmo',
+        clicks: 0,
+        uniqueClicks: 0
+      };
+
+      // Generate QR Code as DataURL
+      try {
+        const qrDataUrl = await QRCode.toDataURL(shortUrl, {
+          width: 150,
+          margin: 1,
+          color: {
+            dark: '#1e1b4b',
+            light: '#ffffff'
+          }
+        });
+        setQrCodeDataUrl(qrDataUrl);
+      } catch (err) {
+        console.error(err);
+      }
+
+      setLinksList(prevList => [newLink, ...prevList]);
+      setShortenedResult(newLink);
+      setCopied(false);
+
+      // Celebration effect!
+      confetti({
+        particleCount: 80,
+        spread: 70,
+        origin: { y: 0.6 }
+      });
+    } catch (err: any) {
       console.error(err);
+      setError(err.message || 'Erro de conexão ou erro interno no servidor.');
+    } finally {
+      setIsLoading(false);
     }
-
-    setLinksList([newLink, ...linksList]);
-    setShortenedResult(newLink);
-    setCopied(false);
-
-    // Celebration effect!
-    confetti({
-      particleCount: 80,
-      spread: 70,
-      origin: { y: 0.6 }
-    });
   };
 
   // Copy shortened link to clipboard
@@ -387,10 +408,11 @@ export default function App() {
                           <input
                             type="text"
                             required
+                            disabled={isLoading}
                             placeholder="https://exemplo.com/uma-url-muito-longa-e-complexa-que-ninguem-consegue-lembrar"
                             value={longUrl}
                             onChange={(e) => setLongUrl(e.target.value)}
-                            className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-11 pr-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-slate-700 transition-all placeholder:text-slate-400"
+                            className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-11 pr-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-slate-700 transition-all placeholder:text-slate-400 disabled:opacity-60"
                           />
                         </div>
                       </div>
@@ -409,10 +431,11 @@ export default function App() {
                             </span>
                             <input
                               type="text"
+                              disabled={isLoading}
                               placeholder="meu-link"
                               value={customAlias}
                               onChange={(e) => setCustomAlias(e.target.value)}
-                              className="flex-1 bg-slate-50/50 px-3.5 py-3 text-sm focus:outline-none text-slate-700 placeholder:text-slate-400"
+                              className="flex-1 bg-slate-50/50 px-3.5 py-3 text-sm focus:outline-none text-slate-700 placeholder:text-slate-400 disabled:opacity-60"
                             />
                           </div>
                         </div>
@@ -421,10 +444,24 @@ export default function App() {
                         <div className="md:col-span-4">
                           <button
                             type="submit"
-                            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-sm px-4 py-3.5 rounded-lg flex items-center justify-center gap-2 shadow-sm transition-all active:scale-[0.98] border border-indigo-600 cursor-pointer"
+                            disabled={isLoading}
+                            className={`w-full text-white font-medium text-sm px-4 py-3.5 rounded-lg flex items-center justify-center gap-2 shadow-sm transition-all active:scale-[0.98] border cursor-pointer ${
+                              isLoading
+                                ? 'bg-indigo-400 border-indigo-400 cursor-not-allowed'
+                                : 'bg-indigo-600 hover:bg-indigo-700 border-indigo-600'
+                            }`}
                           >
-                            <Sparkles className="w-4 h-4" />
-                            <span>Encurtar URL</span>
+                            {isLoading ? (
+                              <>
+                                <span className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span>
+                                <span>Carregando...</span>
+                              </>
+                            ) : (
+                              <>
+                                <Sparkles className="w-4 h-4" />
+                                <span>Encurtar URL</span>
+                              </>
+                            )}
                           </button>
                         </div>
 
@@ -432,6 +469,14 @@ export default function App() {
 
                     </form>
                   </div>
+
+                  {/* Error Alert Display */}
+                  {error && (
+                    <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700 flex items-start gap-3 shadow-sm animate-fadeIn" role="alert">
+                      <span className="font-bold text-red-800">Erro:</span>
+                      <p className="flex-1">{error}</p>
+                    </div>
+                  )}
 
                   {/* Success Result Container (Only shows when result is available) */}
                   {shortenedResult && (

@@ -22,6 +22,15 @@ describe('Encurtador de URL App UI & Flow', () => {
   });
 
   it('allows entering a long URL and alias to shorten it', async () => {
+    // Mock successful fetch response
+    const mockFetch = vi.fn().mockImplementation(() =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ shortUrl: 'https://hub.dev/meu-teste' }),
+      } as Response)
+    );
+    global.fetch = mockFetch;
+
     render(<App />);
 
     const urlInput = screen.getByPlaceholderText(/https:\/\/exemplo.com\/uma-url-muito-longa/i);
@@ -35,6 +44,35 @@ describe('Encurtador de URL App UI & Flow', () => {
     const successText = await screen.findByText('Pronto! Aqui está seu link');
     expect(successText).toBeInTheDocument();
     expect(screen.getByText('https://hub.dev/meu-teste')).toBeInTheDocument();
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://localhost:8080/shorten?url=https%3A%2F%2Fexemplo.com%2Fteste-completo',
+      expect.objectContaining({ method: 'POST' })
+    );
+  });
+
+  it('exhibits error message when API fails', async () => {
+    // Mock error fetch response
+    const mockFetch = vi.fn().mockImplementation(() =>
+      Promise.resolve({
+        ok: false,
+        status: 500,
+        json: () => Promise.resolve({ error: 'Internal Server Error' }),
+      } as Response)
+    );
+    global.fetch = mockFetch;
+
+    render(<App />);
+
+    const urlInput = screen.getByPlaceholderText(/https:\/\/exemplo.com\/uma-url-muito-longa/i);
+    const submitBtn = screen.getByRole('button', { name: /Encurtar URL/i });
+
+    fireEvent.change(urlInput, { target: { value: 'https://exemplo.com/erro-completo' } });
+    fireEvent.click(submitBtn);
+
+    const errorAlert = await screen.findByRole('alert');
+    expect(errorAlert).toBeInTheDocument();
+    expect(errorAlert).toHaveTextContent('Erro na API (500): Não foi possível encurtar a URL no momento.');
   });
 
   it('filters history detailed table by search term', async () => {
