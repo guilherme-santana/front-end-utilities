@@ -23,7 +23,9 @@ import {
   Info,
   Trash2,
   ExternalLink,
-  Check
+  Check,
+  RotateCw,
+  IdCard
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import QRCode from 'qrcode';
@@ -70,6 +72,100 @@ const INITIAL_LINKS: ShortenedLink[] = [
   }
 ];
 
+// Document generation helper functions
+function generateCPF(withPunctuation: boolean, ufCode: string): string {
+  // Digit of origin (9th digit) based on chosen UF
+  // 1: DF, GO, MS, MT, TO
+  // 2: AC, AM, AP, PA, RO, RR
+  // 3: CE, MA, PI
+  // 4: AL, PB, PE, RN
+  // 5: BA, SE
+  // 6: MG
+  // 7: ES, RJ
+  // 8: SP
+  // 9: PR, SC
+  // 0: RS
+  let originDigit = Math.floor(Math.random() * 10);
+  if (ufCode !== 'random') {
+    const mapping: Record<string, number> = {
+      'DF': 1, 'GO': 1, 'MS': 1, 'MT': 1, 'TO': 1,
+      'AC': 2, 'AM': 2, 'AP': 2, 'PA': 2, 'RO': 2, 'RR': 2,
+      'CE': 3, 'MA': 3, 'PI': 3,
+      'AL': 4, 'PB': 4, 'PE': 4, 'RN': 4,
+      'BA': 5, 'SE': 5,
+      'MG': 6,
+      'ES': 7, 'RJ': 7,
+      'SP': 8,
+      'PR': 9, 'SC': 9,
+      'RS': 0
+    };
+    if (mapping[ufCode] !== undefined) {
+      originDigit = mapping[ufCode];
+    }
+  }
+
+  const d = Array.from({ length: 8 }, () => Math.floor(Math.random() * 10));
+  d.push(originDigit);
+
+  // Compute 1st verifying digit
+  let sum = 0;
+  for (let i = 0; i < 9; i++) {
+    sum += d[i] * (10 - i);
+  }
+  let rest = sum % 11;
+  const v1 = rest < 2 ? 0 : 11 - rest;
+  d.push(v1);
+
+  // Compute 2nd verifying digit
+  sum = 0;
+  for (let i = 0; i < 10; i++) {
+    sum += d[i] * (11 - i);
+  }
+  rest = sum % 11;
+  const v2 = rest < 2 ? 0 : 11 - rest;
+  d.push(v2);
+
+  const raw = d.join('');
+  if (withPunctuation) {
+    return `${raw.slice(0, 3)}.${raw.slice(3, 6)}.${raw.slice(6, 9)}-${raw.slice(9, 11)}`;
+  }
+  return raw;
+}
+
+function generateCNPJ(withPunctuation: boolean): string {
+  // First 8 digits are random, next 4 are usually 0001 (standard matrix/branch)
+  const d = Array.from({ length: 8 }, () => Math.floor(Math.random() * 10));
+  d.push(0, 0, 0, 1); // 0001
+
+  // Compute 1st verifying digit
+  // Weights: 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2
+  const weights1 = [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
+  let sum = 0;
+  for (let i = 0; i < 12; i++) {
+    sum += d[i] * weights1[i];
+  }
+  let rest = sum % 11;
+  const v1 = rest < 2 ? 0 : 11 - rest;
+  d.push(v1);
+
+  // Compute 2nd verifying digit
+  // Weights: 6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2
+  const weights2 = [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
+  sum = 0;
+  for (let i = 0; i < 13; i++) {
+    sum += d[i] * weights2[i];
+  }
+  rest = sum % 11;
+  const v2 = rest < 2 ? 0 : 11 - rest;
+  d.push(v2);
+
+  const raw = d.join('');
+  if (withPunctuation) {
+    return `${raw.slice(0, 2)}.${raw.slice(2, 5)}.${raw.slice(5, 8)}/${raw.slice(8, 12)}-${raw.slice(12, 14)}`;
+  }
+  return raw;
+}
+
 export default function App() {
   // Navigation active state
   const [activeTab, setActiveTab] = useState('URL Shortener');
@@ -94,6 +190,14 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Document Generator state variables
+  const [docType, setDocType] = useState<'CPF' | 'CNPJ'>('CPF');
+  const [withPunctuation, setWithPunctuation] = useState(true);
+  const [originState, setOriginState] = useState('random');
+  const [generatedDoc, setGeneratedDoc] = useState<string>('---.---.--- --');
+  const [recentDocs, setRecentDocs] = useState<string[]>([]);
+  const [docCopied, setDocCopied] = useState(false);
+
   // Notification simulator
   const [notifications, setNotifications] = useState(3);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -103,11 +207,12 @@ export default function App() {
     { name: 'Dashboard', icon: LayoutDashboard },
     { name: 'Code Tools', icon: Code2 },
     { name: 'Security', icon: ShieldCheck },
-    { name: 'URL Shortener', icon: Link2 },
     { name: 'Text Utilities', icon: FileText },
     { name: 'Financial', icon: DollarSign },
     { name: 'Files', icon: FolderOpen },
     { name: 'Mobile Tools', icon: Smartphone },
+    { name: 'URL Shortener', icon: Link2 },
+    { name: 'Document Generator', icon: IdCard },
     { name: 'Settings', icon: Settings }
   ];
 
@@ -218,6 +323,28 @@ export default function App() {
     }, 2000);
   };
 
+  // Generate Document Action (CPF / CNPJ)
+  const handleGenerateDoc = () => {
+    let result = '';
+    if (docType === 'CPF') {
+      result = generateCPF(withPunctuation, originState);
+    } else {
+      result = generateCNPJ(withPunctuation);
+    }
+    setGeneratedDoc(result);
+    setRecentDocs(prev => [result, ...prev].slice(0, 10)); // Keep up to 10 recents
+  };
+
+  // Copy Document to clipboard with custom notification
+  const handleCopyDocToClipboard = (doc: string) => {
+    if (doc === '---.---.--- --' || !doc.trim()) return;
+    navigator.clipboard.writeText(doc);
+    setDocCopied(true);
+    setTimeout(() => {
+      setDocCopied(false);
+    }, 2000);
+  };
+
   // Export history to CSV file
   const exportToCSV = () => {
     const headers = ['Alias', 'Shortened URL', 'Original URL', 'Clicks', 'Unique Clicks', 'Created At'];
@@ -273,15 +400,26 @@ export default function App() {
   return (
     <div className="flex min-h-screen bg-[#f4f6fa] text-slate-800">
 
+      {/* Copiado para a área de transferência Toast notification */}
+      {docCopied && (
+        <div className="fixed top-4 left-4 z-50 bg-slate-900 text-white text-xs font-semibold px-4 py-2 rounded-md shadow-lg flex items-center gap-2 animate-fadeIn border border-slate-800">
+          <Check className="w-4 h-4 text-emerald-400" />
+          <span>Copiado para a área de transferência!</span>
+        </div>
+      )}
+
       {/* 1. Sidebar (Menu Lateral Esquerdo) */}
       <aside className="w-64 bg-[#f8fafd] border-r border-slate-200/80 flex flex-col shrink-0">
 
         {/* Brand / Logo Header */}
         <div className="p-6 pb-2 flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-extrabold text-lg">
-            H
+            D
           </div>
-          <span className="font-bold text-slate-900 text-lg tracking-tight">HubTools</span>
+          <div className="flex flex-col">
+            <span className="font-bold text-slate-900 text-base tracking-tight leading-none">DevTools Hub</span>
+            <span className="text-[10px] text-slate-400 font-medium tracking-wide mt-0.5">Utility Platform</span>
+          </div>
         </div>
 
         {/* Sidebar Navigation */}
@@ -312,8 +450,18 @@ export default function App() {
         </div>
 
         {/* Sidebar Footer info */}
-        <div className="p-4 border-t border-slate-200/60 text-center text-xs text-slate-400">
-          <p>&copy; 2026 HubTools. Inc.</p>
+        <div className="p-4 border-t border-slate-200/60 flex items-center gap-3">
+          <div className="w-8 h-8 rounded-full overflow-hidden border border-slate-200">
+            <img
+              src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&fit=crop&q=80"
+              alt="Dev User"
+              className="w-full h-full object-cover"
+            />
+          </div>
+          <div className="flex flex-col text-left">
+            <span className="text-xs font-bold text-slate-900 leading-none">Dev User</span>
+            <span className="text-[9px] text-slate-400 font-medium tracking-wide mt-0.5">Standard Plan</span>
+          </div>
         </div>
       </aside>
 
@@ -364,9 +512,16 @@ export default function App() {
 
             {/* User Profile Avatar */}
             <div className="flex items-center gap-3">
-              <span className="text-sm font-medium text-slate-700">Juliano S.</span>
-              <div className="w-8 h-8 rounded-full bg-indigo-100 border border-indigo-200 flex items-center justify-center text-indigo-700 font-bold text-xs uppercase cursor-pointer">
-                JS
+              <div className="flex flex-col text-right">
+                <span className="text-sm font-bold text-slate-900 leading-none">Dev User</span>
+                <span className="text-[10px] text-slate-400 font-medium tracking-wide mt-0.5">Standard Plan</span>
+              </div>
+              <div className="w-8 h-8 rounded-full overflow-hidden border border-slate-200 cursor-pointer">
+                <img
+                  src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&fit=crop&q=80"
+                  alt="Dev User"
+                  className="w-full h-full object-cover"
+                />
               </div>
             </div>
           </div>
@@ -375,8 +530,261 @@ export default function App() {
         {/* 3. Área de Conteúdo Principal */}
         <main className="flex-1 overflow-y-auto p-8 max-w-7xl w-full mx-auto space-y-8">
 
-          {/* Main View Condition: Show URL Shortener tools or fallback */}
-          {activeTab === 'URL Shortener' ? (
+          {/* Main View Condition: Document Generator, URL Shortener or Fallback */}
+          {activeTab === 'Document Generator' ? (
+            <>
+              {/* Header Title Section */}
+              <div>
+                <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">
+                  Gerador de Documentos
+                </h1>
+                <p className="text-sm text-slate-500 mt-1.5 max-w-2xl">
+                  Gere documentos válidos para fins de teste e desenvolvimento de software.
+                </p>
+              </div>
+
+              {/* Grid 2-Columns layout */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
+
+                {/* Left Column (Forms & Result card) */}
+                <div className="lg:col-span-2 space-y-6">
+
+                  {/* Document Generator Selector and Configuration Form Card */}
+                  <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm relative overflow-hidden">
+
+                    {/* Background Shield Watermark */}
+                    <div className="absolute right-6 top-6 opacity-[0.03] text-slate-900 pointer-events-none">
+                      <ShieldCheck className="w-40 h-40" />
+                    </div>
+
+                    <div className="space-y-6 relative z-10">
+
+                      {/* Tabs for CPF and CNPJ */}
+                      <div className="flex border-b border-slate-100 pb-px">
+                        <button
+                          onClick={() => setDocType('CPF')}
+                          className={`px-6 py-2.5 font-semibold text-sm transition-all border-b-2 -mb-px cursor-pointer ${
+                            docType === 'CPF'
+                              ? 'border-indigo-600 text-indigo-600'
+                              : 'border-transparent text-slate-400 hover:text-slate-600'
+                          }`}
+                        >
+                          CPF
+                        </button>
+                        <button
+                          onClick={() => setDocType('CNPJ')}
+                          className={`px-6 py-2.5 font-semibold text-sm transition-all border-b-2 -mb-px cursor-pointer ${
+                            docType === 'CNPJ'
+                              ? 'border-indigo-600 text-indigo-600'
+                              : 'border-transparent text-slate-400 hover:text-slate-600'
+                          }`}
+                        >
+                          CNPJ
+                        </button>
+                      </div>
+
+                      {/* Configurations Block */}
+                      <div>
+                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">
+                          CONFIGURAÇÕES
+                        </h4>
+
+                        <div className="space-y-5">
+                          {/* Checkbox "Com pontuação" */}
+                          <label className="flex items-center gap-3 cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={withPunctuation}
+                              onChange={(e) => setWithPunctuation(e.target.checked)}
+                              className="w-4.5 h-4.5 text-indigo-600 bg-slate-50 border-slate-200 rounded focus:ring-indigo-500 focus:ring-2 cursor-pointer"
+                            />
+                            <div className="flex flex-col">
+                              <span className="text-sm font-semibold text-slate-700">Com pontuação</span>
+                              <span className="text-xs text-slate-400">
+                                {docType === 'CPF' ? 'Ex: 000.000.000-00' : 'Ex: 00.000.000/0001-00'}
+                              </span>
+                            </div>
+                          </label>
+
+                          {/* State/UF Selector (only for CPF) */}
+                          {docType === 'CPF' && (
+                            <div className="space-y-2 max-w-xs">
+                              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">
+                                Estado de Origem (UF)
+                              </label>
+                              <select
+                                value={originState}
+                                onChange={(e) => setOriginState(e.target.value)}
+                                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer"
+                              >
+                                <option value="random">Aleatório (Qualquer UF)</option>
+                                <option value="AC">Acre (AC)</option>
+                                <option value="AL">Alagoas (AL)</option>
+                                <option value="AP">Amapá (AP)</option>
+                                <option value="AM">Amazonas (AM)</option>
+                                <option value="BA">Bahia (BA)</option>
+                                <option value="CE">Ceará (CE)</option>
+                                <option value="DF">Distrito Federal (DF)</option>
+                                <option value="ES">Espírito Santo (ES)</option>
+                                <option value="GO">Goiás (GO)</option>
+                                <option value="MA">Maranhão (MA)</option>
+                                <option value="MT">Mato Grosso (MT)</option>
+                                <option value="MS">Mato Grosso do Sul (MS)</option>
+                                <option value="MG">Minas Gerais (MG)</option>
+                                <option value="PA">Pará (PA)</option>
+                                <option value="PB">Paraíba (PB)</option>
+                                <option value="PR">Paraná (PR)</option>
+                                <option value="PE">Pernambuco (PE)</option>
+                                <option value="PI">Piauí (PI)</option>
+                                <option value="RJ">Rio de Janeiro (RJ)</option>
+                                <option value="RN">Rio Grande do Norte (RN)</option>
+                                <option value="RS">Rio Grande do Sul (RS)</option>
+                                <option value="RO">Rondônia (RO)</option>
+                                <option value="RR">Roraima (RR)</option>
+                                <option value="SC">Santa Catarina (SC)</option>
+                                <option value="SP">São Paulo (SP)</option>
+                                <option value="SE">Sergipe (SE)</option>
+                                <option value="TO">Tocantins (TO)</option>
+                              </select>
+                            </div>
+                          )}
+
+                          {/* Action Generate Button */}
+                          <div className="pt-2">
+                            <button
+                              onClick={handleGenerateDoc}
+                              className="inline-flex items-center justify-center gap-2 bg-white hover:bg-slate-50 text-slate-800 font-bold text-sm px-6 py-3 rounded-lg border border-slate-200 shadow-sm transition-all active:scale-[0.98] cursor-pointer"
+                            >
+                              <RotateCw className="w-4 h-4 text-slate-500 animate-hover-spin" />
+                              <span>Gerar Novo Número</span>
+                            </button>
+                          </div>
+
+                        </div>
+                      </div>
+
+                    </div>
+                  </div>
+
+                  {/* Document Result Display Card */}
+                  <div className="bg-white rounded-xl border border-slate-200 p-8 shadow-sm text-center space-y-4">
+                    <span className="text-xs font-bold text-slate-400 uppercase tracking-widest block">
+                      RESULTADO
+                    </span>
+
+                    <div className="flex items-center justify-center gap-4 py-2">
+                      <span className="text-3xl md:text-4xl font-black font-mono text-slate-900 tracking-wide select-all">
+                        {generatedDoc}
+                      </span>
+                      {generatedDoc !== '---.---.--- --' && (
+                        <button
+                          onClick={() => handleCopyDocToClipboard(generatedDoc)}
+                          className="p-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-600 hover:text-slate-900 transition-colors cursor-pointer"
+                          title="Copiar número"
+                        >
+                          <Copy className="w-5 h-5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Informações de Segurança Warning Box */}
+                  <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm flex gap-4 items-start leading-relaxed">
+                    <Info className="w-5 h-5 text-indigo-600 shrink-0 mt-0.5" />
+                    <div className="space-y-1.5 text-xs text-slate-600">
+                      <span className="font-bold text-slate-900 block text-sm">
+                        Informações de Segurança
+                      </span>
+                      <p>
+                        Os números gerados por esta ferramenta são baseados em algoritmos matemáticos oficiais, mas não correspondem a documentos reais registrados no governo. Eles devem ser utilizados <strong className="text-slate-900 font-bold">exclusivamente</strong> para fins de desenvolvimento, controle de qualidade e testes de software. O uso indevido para fins fraudulentos é crime.
+                      </p>
+                    </div>
+                  </div>
+
+                </div>
+
+                {/* Right Column (Recent Numbers & App Banner Sidebar) */}
+                <div className="space-y-6">
+
+                  {/* NÚMEROS RECENTES CARD */}
+                  <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
+                      <span className="text-xs font-bold text-slate-800 uppercase tracking-widest">
+                        Números Recentes
+                      </span>
+                      {recentDocs.length > 0 && (
+                        <button
+                          onClick={() => {
+                            setRecentDocs([]);
+                            setGeneratedDoc('---.---.--- --');
+                          }}
+                          className="text-[10px] font-bold text-slate-400 hover:text-red-500 uppercase tracking-wider transition-colors cursor-pointer"
+                        >
+                          LIMPAR
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Recent numbers item list */}
+                    <div className="space-y-3">
+                      {recentDocs.map((doc, index) => {
+                        const isCpf = doc.replace(/[\.\-\/]/g, '').length === 11;
+                        return (
+                          <div
+                            key={index}
+                            onClick={() => handleCopyDocToClipboard(doc)}
+                            className="p-3 bg-slate-50 border border-slate-100 rounded-lg hover:border-indigo-100 hover:bg-indigo-50/20 transition-all cursor-pointer flex items-center justify-between group"
+                          >
+                            <div className="flex flex-col">
+                              <span className="font-mono text-sm font-bold text-slate-700 tracking-wide">
+                                {doc}
+                              </span>
+                              <span className="text-[10px] text-slate-400 font-bold tracking-wider uppercase mt-0.5">
+                                {isCpf ? 'CPF' : 'CNPJ'}
+                              </span>
+                            </div>
+                            <Copy className="w-3.5 h-3.5 text-slate-400 group-hover:text-indigo-600 transition-colors" />
+                          </div>
+                        );
+                      })}
+
+                      {recentDocs.length === 0 && (
+                        <p className="text-xs text-slate-400 text-center py-6 font-medium italic">
+                          Nenhum número gerado recentemente.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Promo Banner "API de Documentos" */}
+                  <div className="bg-slate-900 rounded-xl overflow-hidden relative shadow-md text-white aspect-[4/3] flex flex-col justify-end p-5">
+                    {/* Background Image mock */}
+                    <img
+                      src="https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=400&fit=crop&q=80"
+                      alt="API de Documentos"
+                      className="absolute inset-0 w-full h-full object-cover opacity-30 mix-blend-overlay pointer-events-none"
+                    />
+                    <div className="relative z-10 space-y-2.5">
+                      <span className="text-xs font-extrabold uppercase tracking-widest text-indigo-400">
+                        API de Documentos
+                      </span>
+                      <p className="text-xs text-slate-300 font-normal leading-relaxed">
+                        Conecte seu sistema à nossa API para geração em tempo real.
+                      </p>
+                      <button
+                        onClick={() => alert('Informações sobre a API de Documentos estarão disponíveis em breve!')}
+                        className="bg-white hover:bg-slate-100 text-slate-900 font-bold text-[11px] px-3.5 py-2 rounded-lg transition-colors cursor-pointer"
+                      >
+                        Saiba mais
+                      </button>
+                    </div>
+                  </div>
+
+                </div>
+
+              </div>
+            </>
+          ) : activeTab === 'URL Shortener' ? (
             <>
               {/* Header Title Section */}
               <div>

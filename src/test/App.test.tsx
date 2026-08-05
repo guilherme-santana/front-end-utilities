@@ -78,6 +78,10 @@ describe('Encurtador de URL App UI & Flow', () => {
   it('filters history detailed table by search term', async () => {
     render(<App />);
 
+    // Go to URL Shortener tab first to see the history
+    const shortenerTab = screen.getByRole('button', { name: /URL Shortener/i });
+    fireEvent.click(shortenerTab);
+
     // Initially we have the api-docs-v2, portfolio-new, meeting-link mock items
     // Use getAllByText and verify they render
     expect(screen.getAllByText(/\/api-docs-v2/i).length).toBeGreaterThan(0);
@@ -94,5 +98,35 @@ describe('Encurtador de URL App UI & Flow', () => {
     expect(tableElement).toBeInTheDocument();
     expect(tableElement).not.toHaveTextContent('/api-docs-v2');
     expect(tableElement).toHaveTextContent('/portfolio-new');
+  });
+
+  it('allows generating documents (CPF and CNPJ)', async () => {
+    render(<App />);
+
+    // Click the Document Generator tab first
+    const docGenTab = screen.getByRole('button', { name: /Document Generator/i });
+    fireEvent.click(docGenTab);
+
+    // Verify "Document Generator" view is rendered
+    expect(screen.getByText('Gerador de Documentos')).toBeInTheDocument();
+    expect(screen.getByText('---.---.--- --')).toBeInTheDocument();
+
+    // Click "Gerar Novo Número" to generate CPF
+    const generateBtn = screen.getByRole('button', { name: /Gerar Novo Número/i });
+    fireEvent.click(generateBtn);
+
+    // Verify CPF with punctuation is generated
+    const docElements = screen.getAllByText(/\d{3}\.\d{3}\.\d{3}-\d{2}/);
+    expect(docElements.length).toBeGreaterThan(0);
+
+    // Switch to CNPJ
+    const cnpjTab = screen.getByRole('button', { name: 'CNPJ' });
+    fireEvent.click(cnpjTab);
+
+    fireEvent.click(generateBtn);
+
+    // Verify CNPJ is generated
+    const cnpjElements = screen.getAllByText(/\d{2}\.\d{3}\.\d{3}\/0001-\d{2}/);
+    expect(cnpjElements.length).toBeGreaterThan(0);
   });
 });
