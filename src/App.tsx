@@ -543,49 +543,6 @@ export default function App() {
                             </div>
                           </label>
 
-                          {/* State/UF Selector (only for CPF) */}
-                          {docType === 'CPF' && (
-                            <div className="space-y-2 max-w-xs">
-                              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">
-                                Estado de Origem (UF)
-                              </label>
-                              <select
-                                value={originState}
-                                onChange={(e) => setOriginState(e.target.value)}
-                                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer"
-                              >
-                                <option value="random">Aleatório (Qualquer UF)</option>
-                                <option value="AC">Acre (AC)</option>
-                                <option value="AL">Alagoas (AL)</option>
-                                <option value="AP">Amapá (AP)</option>
-                                <option value="AM">Amazonas (AM)</option>
-                                <option value="BA">Bahia (BA)</option>
-                                <option value="CE">Ceará (CE)</option>
-                                <option value="DF">Distrito Federal (DF)</option>
-                                <option value="ES">Espírito Santo (ES)</option>
-                                <option value="GO">Goiás (GO)</option>
-                                <option value="MA">Maranhão (MA)</option>
-                                <option value="MT">Mato Grosso (MT)</option>
-                                <option value="MS">Mato Grosso do Sul (MS)</option>
-                                <option value="MG">Minas Gerais (MG)</option>
-                                <option value="PA">Pará (PA)</option>
-                                <option value="PB">Paraíba (PB)</option>
-                                <option value="PR">Paraná (PR)</option>
-                                <option value="PE">Pernambuco (PE)</option>
-                                <option value="PI">Piauí (PI)</option>
-                                <option value="RJ">Rio de Janeiro (RJ)</option>
-                                <option value="RN">Rio Grande do Norte (RN)</option>
-                                <option value="RS">Rio Grande do Sul (RS)</option>
-                                <option value="RO">Rondônia (RO)</option>
-                                <option value="RR">Roraima (RR)</option>
-                                <option value="SC">Santa Catarina (SC)</option>
-                                <option value="SP">São Paulo (SP)</option>
-                                <option value="SE">Sergipe (SE)</option>
-                                <option value="TO">Tocantins (TO)</option>
-                              </select>
-                            </div>
-                          )}
-
                           {/* Error Alert Display */}
                           {docError && (
                             <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700 flex items-start gap-3 shadow-sm animate-fadeIn" role="alert">
@@ -773,26 +730,6 @@ export default function App() {
 
                       {/* Alias and Shorten Button side-by-side */}
                       <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
-
-                        {/* Custom Alias Input */}
-                        <div className="md:col-span-8">
-                          <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
-                            Alias personalizado (Opcional)
-                          </label>
-                          <div className="flex rounded-lg overflow-hidden border border-slate-200">
-                            <span className="bg-slate-100 text-slate-500 px-3.5 py-3 text-sm select-none border-r border-slate-200/80 font-medium font-sans">
-                              hub.dev/
-                            </span>
-                            <input
-                              type="text"
-                              disabled={isLoading}
-                              placeholder="meu-link"
-                              value={customAlias}
-                              onChange={(e) => setCustomAlias(e.target.value)}
-                              className="flex-1 bg-slate-50/50 px-3.5 py-3 text-sm focus:outline-none text-slate-700 placeholder:text-slate-400 disabled:opacity-60"
-                            />
-                          </div>
-                        </div>
 
                         {/* Shorten Action Button */}
                         <div className="md:col-span-4">
