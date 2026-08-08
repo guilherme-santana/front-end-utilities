@@ -107,6 +107,19 @@ export default function App() {
   const [isDocLoading, setIsDocLoading] = useState(false);
   const [docError, setDocError] = useState<string | null>(null);
 
+  // Document Validator state variables
+  const [docToValidate, setDocToValidate] = useState('');
+  const [isValidating, setIsValidating] = useState(false);
+  const [validationResult, setValidationResult] = useState<boolean | null>(null);
+  const [validationError, setValidationError] = useState<string | null>(null);
+
+  const handleSetDocType = (type: 'CPF' | 'CNPJ') => {
+    setDocType(type);
+    setDocToValidate('');
+    setValidationResult(null);
+    setValidationError(null);
+  };
+
   // Notification simulator
   const [notifications, setNotifications] = useState(3);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -269,6 +282,57 @@ export default function App() {
       setDocError(err.message || `Erro de conexão ou erro interno ao gerar o ${docType}.`);
     } finally {
       setIsDocLoading(false);
+    }
+  };
+
+  // Validate Document Action (CPF / CNPJ)
+  const handleValidateDoc = async () => {
+    if (isValidating || !docToValidate.trim()) return;
+    setIsValidating(true);
+    setValidationError(null);
+    setValidationResult(null);
+
+    try {
+      const payloadKey = docType.toLowerCase(); // 'cpf' or 'cnpj'
+      const url = `http://localhost:8080/validate/${payloadKey}`;
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ [payloadKey]: docToValidate.trim() }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Erro na API (${response.status}): Não foi possível validar o ${docType} no momento.`);
+      }
+
+      const text = await response.text();
+      let isValid = false;
+      try {
+        const json = JSON.parse(text);
+        isValid = !!(
+          json.valid === true ||
+          json.isValid === true ||
+          json.valido === true ||
+          json.valid === 'true' ||
+          json.isValid === 'true' ||
+          json.valido === 'true' ||
+          json.status === 'valid' ||
+          json.status === 'SUCCESS' ||
+          json.status === true
+        );
+      } catch {
+        isValid = text.trim().toLowerCase() === 'true';
+      }
+
+      setValidationResult(isValid);
+    } catch (err: any) {
+      console.error(err);
+      setValidationError(err.message || `Erro de conexão ou erro interno ao validar o ${docType}.`);
+    } finally {
+      setIsValidating(false);
     }
   };
 
@@ -499,7 +563,7 @@ export default function App() {
                       {/* Tabs for CPF and CNPJ */}
                       <div className="flex border-b border-slate-100 pb-px">
                         <button
-                          onClick={() => setDocType('CPF')}
+                          onClick={() => handleSetDocType('CPF')}
                           className={`px-6 py-2.5 font-semibold text-sm transition-all border-b-2 -mb-px cursor-pointer ${
                             docType === 'CPF'
                               ? 'border-indigo-600 text-indigo-600'
@@ -509,7 +573,7 @@ export default function App() {
                           CPF
                         </button>
                         <button
-                          onClick={() => setDocType('CNPJ')}
+                          onClick={() => handleSetDocType('CNPJ')}
                           className={`px-6 py-2.5 font-semibold text-sm transition-all border-b-2 -mb-px cursor-pointer ${
                             docType === 'CNPJ'
                               ? 'border-indigo-600 text-indigo-600'
@@ -589,6 +653,68 @@ export default function App() {
                         </button>
                       )}
                     </div>
+                  </div>
+
+                  {/* Document Validator Card */}
+                  <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm space-y-4">
+                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                      VALIDADOR DE {docType}
+                    </h3>
+
+                    <form onSubmit={(e) => { e.preventDefault(); handleValidateDoc(); }} className="space-y-4">
+                      <div className="flex gap-3">
+                        <input
+                          type="text"
+                          required
+                          disabled={isValidating}
+                          placeholder={docType === 'CPF' ? '000.000.000-00' : '00.000.000/0001-00'}
+                          value={docToValidate}
+                          onChange={(e) => setDocToValidate(e.target.value)}
+                          className="flex-1 bg-slate-50 border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 disabled:opacity-60"
+                        />
+                        <button
+                          type="submit"
+                          disabled={isValidating || !docToValidate.trim()}
+                          className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm px-6 py-2.5 rounded-lg shadow-sm transition-all active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2 cursor-pointer"
+                        >
+                          {isValidating ? (
+                            <>
+                              <span className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span>
+                              <span>Validando...</span>
+                            </>
+                          ) : (
+                            <span>Validar</span>
+                          )}
+                        </button>
+                      </div>
+                    </form>
+
+                    {/* Validation Error Alert */}
+                    {validationError && (
+                      <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700 flex items-start gap-3 shadow-sm animate-fadeIn" role="alert">
+                        <span className="font-bold text-red-800">Erro:</span>
+                        <p className="flex-1">{validationError}</p>
+                      </div>
+                    )}
+
+                    {/* Validation Result Display */}
+                    {validationResult !== null && !validationError && (
+                      <div className={`p-4 rounded-xl border text-sm flex items-start gap-3 shadow-sm animate-fadeIn ${
+                        validationResult ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'
+                      }`} role="status">
+                        {validationResult ? (
+                          <div className="flex items-center gap-2 text-emerald-800 font-semibold">
+                            <span className="w-2.5 h-2.5 bg-emerald-500 rounded-full animate-ping"></span>
+                            <span>Este {docType} é válido e estruturalmente correto!</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2 text-amber-800 font-semibold">
+                            <span className="w-2.5 h-2.5 bg-amber-500 rounded-full"></span>
+                            <span>Este {docType} possui formatação ou dígitos verificadores inválidos.</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   {/* Informações de Segurança Warning Box */}
