@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import App from '../App';
 
 // Mock canvas-confetti because it uses browser APIs that can fail in jsdom
@@ -101,11 +101,30 @@ describe('Encurtador de URL App UI & Flow', () => {
   });
 
   it('allows generating documents (CPF and CNPJ)', async () => {
+    const mockFetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/generate/cpf')) {
+        return Promise.resolve({
+          ok: true,
+          text: () => Promise.resolve(JSON.stringify({ cpf: '111.222.333-44' })),
+        } as Response);
+      }
+      if (url.includes('/generate/cnpj')) {
+        return Promise.resolve({
+          ok: true,
+          text: () => Promise.resolve(JSON.stringify({ cnpj: '11.222.333/0001-44' })),
+        } as Response);
+      }
+      return Promise.reject(new Error('Unhandled URL mock'));
+    });
+    global.fetch = mockFetch;
+
     render(<App />);
 
     // Click the Document Generator tab first
     const docGenTab = screen.getByRole('button', { name: /Document Generator/i });
-    fireEvent.click(docGenTab);
+    await act(async () => {
+      fireEvent.click(docGenTab);
+    });
 
     // Verify "Document Generator" view is rendered
     expect(screen.getByText('Gerador de Documentos')).toBeInTheDocument();
@@ -115,9 +134,16 @@ describe('Encurtador de URL App UI & Flow', () => {
     const generateBtn = screen.getByRole('button', { name: /Gerar Novo Número/i });
     fireEvent.click(generateBtn);
 
-    // Verify CPF with punctuation is generated
-    const docElements = screen.getAllByText(/\d{3}\.\d{3}\.\d{3}-\d{2}/);
-    expect(docElements.length).toBeGreaterThan(0);
+    // Verify CPF is fetched and displayed
+    await waitFor(() => {
+      const elements = screen.getAllByText('111.222.333-44');
+      expect(elements.length).toBeGreaterThan(0);
+    });
+
+    expect(mockFetch).toHaveBeenLastCalledWith(
+      'http://localhost:8080/generate/cpf?formatted=true',
+      expect.objectContaining({ method: 'GET' })
+    );
 
     // Switch to CNPJ
     const cnpjTab = screen.getByRole('button', { name: 'CNPJ' });
@@ -125,8 +151,38 @@ describe('Encurtador de URL App UI & Flow', () => {
 
     fireEvent.click(generateBtn);
 
-    // Verify CNPJ is generated
-    const cnpjElements = screen.getAllByText(/\d{2}\.\d{3}\.\d{3}\/0001-\d{2}/);
-    expect(cnpjElements.length).toBeGreaterThan(0);
+    // Verify CNPJ is fetched and displayed
+    await waitFor(() => {
+      const elements = screen.getAllByText('11.222.333/0001-44');
+      expect(elements.length).toBeGreaterThan(0);
+    });
+
+    expect(mockFetch).toHaveBeenLastCalledWith(
+      'http://localhost:8080/generate/cnpj?formatted=true',
+      expect.objectContaining({ method: 'GET' })
+    );
+  });
+
+  it('handles API errors when document generation fails', async () => {
+    const mockFetch = vi.fn().mockImplementation(() =>
+      Promise.resolve({
+        ok: false,
+        status: 500,
+        text: () => Promise.resolve('Internal Server Error'),
+      } as Response)
+    );
+    global.fetch = mockFetch;
+
+    render(<App />);
+
+    const docGenTab = screen.getByRole('button', { name: /Document Generator/i });
+    fireEvent.click(docGenTab);
+
+    const generateBtn = screen.getByRole('button', { name: /Gerar Novo Número/i });
+    fireEvent.click(generateBtn);
+
+    const errorAlert = await screen.findByRole('alert');
+    expect(errorAlert).toBeInTheDocument();
+    expect(errorAlert).toHaveTextContent('Erro na API (500): Não foi possível gerar o CPF no momento.');
   });
 });

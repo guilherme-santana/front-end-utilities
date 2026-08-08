@@ -72,99 +72,6 @@ const INITIAL_LINKS: ShortenedLink[] = [
   }
 ];
 
-// Document generation helper functions
-function generateCPF(withPunctuation: boolean, ufCode: string): string {
-  // Digit of origin (9th digit) based on chosen UF
-  // 1: DF, GO, MS, MT, TO
-  // 2: AC, AM, AP, PA, RO, RR
-  // 3: CE, MA, PI
-  // 4: AL, PB, PE, RN
-  // 5: BA, SE
-  // 6: MG
-  // 7: ES, RJ
-  // 8: SP
-  // 9: PR, SC
-  // 0: RS
-  let originDigit = Math.floor(Math.random() * 10);
-  if (ufCode !== 'random') {
-    const mapping: Record<string, number> = {
-      'DF': 1, 'GO': 1, 'MS': 1, 'MT': 1, 'TO': 1,
-      'AC': 2, 'AM': 2, 'AP': 2, 'PA': 2, 'RO': 2, 'RR': 2,
-      'CE': 3, 'MA': 3, 'PI': 3,
-      'AL': 4, 'PB': 4, 'PE': 4, 'RN': 4,
-      'BA': 5, 'SE': 5,
-      'MG': 6,
-      'ES': 7, 'RJ': 7,
-      'SP': 8,
-      'PR': 9, 'SC': 9,
-      'RS': 0
-    };
-    if (mapping[ufCode] !== undefined) {
-      originDigit = mapping[ufCode];
-    }
-  }
-
-  const d = Array.from({ length: 8 }, () => Math.floor(Math.random() * 10));
-  d.push(originDigit);
-
-  // Compute 1st verifying digit
-  let sum = 0;
-  for (let i = 0; i < 9; i++) {
-    sum += d[i] * (10 - i);
-  }
-  let rest = sum % 11;
-  const v1 = rest < 2 ? 0 : 11 - rest;
-  d.push(v1);
-
-  // Compute 2nd verifying digit
-  sum = 0;
-  for (let i = 0; i < 10; i++) {
-    sum += d[i] * (11 - i);
-  }
-  rest = sum % 11;
-  const v2 = rest < 2 ? 0 : 11 - rest;
-  d.push(v2);
-
-  const raw = d.join('');
-  if (withPunctuation) {
-    return `${raw.slice(0, 3)}.${raw.slice(3, 6)}.${raw.slice(6, 9)}-${raw.slice(9, 11)}`;
-  }
-  return raw;
-}
-
-function generateCNPJ(withPunctuation: boolean): string {
-  // First 8 digits are random, next 4 are usually 0001 (standard matrix/branch)
-  const d = Array.from({ length: 8 }, () => Math.floor(Math.random() * 10));
-  d.push(0, 0, 0, 1); // 0001
-
-  // Compute 1st verifying digit
-  // Weights: 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2
-  const weights1 = [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
-  let sum = 0;
-  for (let i = 0; i < 12; i++) {
-    sum += d[i] * weights1[i];
-  }
-  let rest = sum % 11;
-  const v1 = rest < 2 ? 0 : 11 - rest;
-  d.push(v1);
-
-  // Compute 2nd verifying digit
-  // Weights: 6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2
-  const weights2 = [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
-  sum = 0;
-  for (let i = 0; i < 13; i++) {
-    sum += d[i] * weights2[i];
-  }
-  rest = sum % 11;
-  const v2 = rest < 2 ? 0 : 11 - rest;
-  d.push(v2);
-
-  const raw = d.join('');
-  if (withPunctuation) {
-    return `${raw.slice(0, 2)}.${raw.slice(2, 5)}.${raw.slice(5, 8)}/${raw.slice(8, 12)}-${raw.slice(12, 14)}`;
-  }
-  return raw;
-}
 
 export default function App() {
   // Navigation active state
@@ -197,6 +104,8 @@ export default function App() {
   const [generatedDoc, setGeneratedDoc] = useState<string>('---.---.--- --');
   const [recentDocs, setRecentDocs] = useState<string[]>([]);
   const [docCopied, setDocCopied] = useState(false);
+  const [isDocLoading, setIsDocLoading] = useState(false);
+  const [docError, setDocError] = useState<string | null>(null);
 
   // Notification simulator
   const [notifications, setNotifications] = useState(3);
@@ -324,15 +233,43 @@ export default function App() {
   };
 
   // Generate Document Action (CPF / CNPJ)
-  const handleGenerateDoc = () => {
-    let result = '';
-    if (docType === 'CPF') {
-      result = generateCPF(withPunctuation, originState);
-    } else {
-      result = generateCNPJ(withPunctuation);
+  const handleGenerateDoc = async () => {
+    if (isDocLoading) return;
+    setIsDocLoading(true);
+    setDocError(null);
+
+    try {
+      const url = `http://localhost:8080/generate/${docType.toLowerCase()}?formatted=${withPunctuation}`;
+      const response = await fetch(url, {
+        method: 'GET',
+      });
+
+      if (!response.ok) {
+        throw new Error(`Erro na API (${response.status}): Não foi possível gerar o ${docType} no momento.`);
+      }
+
+      const text = await response.text();
+      let result = '';
+      try {
+        const json = JSON.parse(text);
+        result = json.cpf || json.cnpj || json.document || json.number || json.value || json.result || text;
+      } catch {
+        result = text;
+      }
+
+      result = result.trim();
+      if (!result) {
+        throw new Error('A resposta do servidor não continha um documento válido.');
+      }
+
+      setGeneratedDoc(result);
+      setRecentDocs(prev => [result, ...prev].slice(0, 10)); // Keep up to 10 recents
+    } catch (err: any) {
+      console.error(err);
+      setDocError(err.message || `Erro de conexão ou erro interno ao gerar o ${docType}.`);
+    } finally {
+      setIsDocLoading(false);
     }
-    setGeneratedDoc(result);
-    setRecentDocs(prev => [result, ...prev].slice(0, 10)); // Keep up to 10 recents
   };
 
   // Copy Document to clipboard with custom notification
@@ -649,14 +586,23 @@ export default function App() {
                             </div>
                           )}
 
+                          {/* Error Alert Display */}
+                          {docError && (
+                            <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700 flex items-start gap-3 shadow-sm animate-fadeIn" role="alert">
+                              <span className="font-bold text-red-800">Erro:</span>
+                              <p className="flex-1">{docError}</p>
+                            </div>
+                          )}
+
                           {/* Action Generate Button */}
                           <div className="pt-2">
                             <button
                               onClick={handleGenerateDoc}
-                              className="inline-flex items-center justify-center gap-2 bg-white hover:bg-slate-50 text-slate-800 font-bold text-sm px-6 py-3 rounded-lg border border-slate-200 shadow-sm transition-all active:scale-[0.98] cursor-pointer"
+                              disabled={isDocLoading}
+                              className={`inline-flex items-center justify-center gap-2 bg-white hover:bg-slate-50 text-slate-800 font-bold text-sm px-6 py-3 rounded-lg border border-slate-200 shadow-sm transition-all active:scale-[0.98] cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed`}
                             >
-                              <RotateCw className="w-4 h-4 text-slate-500 animate-hover-spin" />
-                              <span>Gerar Novo Número</span>
+                              <RotateCw className={`w-4 h-4 text-slate-500 ${isDocLoading ? 'animate-spin' : 'animate-hover-spin'}`} />
+                              <span>{isDocLoading ? 'Gerando...' : 'Gerar Novo Número'}</span>
                             </button>
                           </div>
 
