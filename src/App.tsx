@@ -586,9 +586,6 @@ export default function App() {
 
                       {/* Configurations Block */}
                       <div>
-                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">
-                          CONFIGURAÇÕES
-                        </h4>
 
                         <div className="space-y-5">
                           {/* Checkbox "Com pontuação" */}
