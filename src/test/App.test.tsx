@@ -185,4 +185,110 @@ describe('Encurtador de URL App UI & Flow', () => {
     expect(errorAlert).toBeInTheDocument();
     expect(errorAlert).toHaveTextContent('Erro na API (500): Não foi possível gerar o CPF no momento.');
   });
+
+  it('allows validating a CPF or CNPJ successfully', async () => {
+    const mockFetch = vi.fn().mockImplementation((url: string, options?: RequestInit) => {
+      if (url.includes('/validate/cpf')) {
+        const body = JSON.parse(options?.body as string);
+        const isValid = body.cpf === '123.456.789-09';
+        return Promise.resolve({
+          ok: true,
+          text: () => Promise.resolve(JSON.stringify({ valid: isValid })),
+        } as Response);
+      }
+      if (url.includes('/validate/cnpj')) {
+        const body = JSON.parse(options?.body as string);
+        const isValid = body.cnpj === '12.345.678/0001-95';
+        return Promise.resolve({
+          ok: true,
+          text: () => Promise.resolve(JSON.stringify({ valid: isValid })),
+        } as Response);
+      }
+      return Promise.reject(new Error('Unhandled URL mock'));
+    });
+    global.fetch = mockFetch;
+
+    render(<App />);
+
+    // Go to Document Generator
+    const docGenTab = screen.getByRole('button', { name: /Document Generator/i });
+    fireEvent.click(docGenTab);
+
+    // Validate valid CPF
+    const validateHeader = screen.getByText('VALIDADOR DE CPF');
+    expect(validateHeader).toBeInTheDocument();
+
+    const input = screen.getByPlaceholderText('000.000.000-00');
+    const validateBtn = screen.getByRole('button', { name: 'Validar' });
+
+    // Test valid CPF
+    fireEvent.change(input, { target: { value: '123.456.789-09' } });
+    fireEvent.click(validateBtn);
+
+    const successMsg = await screen.findByText('Este CPF é válido e estruturalmente correto!');
+    expect(successMsg).toBeInTheDocument();
+
+    expect(mockFetch).toHaveBeenLastCalledWith(
+      'http://localhost:8080/validate/cpf',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ cpf: '123.456.789-09' }),
+      })
+    );
+
+    // Test invalid CPF
+    fireEvent.change(input, { target: { value: '000.000.000-11' } });
+    fireEvent.click(validateBtn);
+
+    const invalidMsg = await screen.findByText('Este CPF possui formatação ou dígitos verificadores inválidos.');
+    expect(invalidMsg).toBeInTheDocument();
+
+    // Switch to CNPJ
+    const cnpjTab = screen.getByRole('button', { name: 'CNPJ' });
+    fireEvent.click(cnpjTab);
+
+    const cnpjHeader = screen.getByText('VALIDADOR DE CNPJ');
+    expect(cnpjHeader).toBeInTheDocument();
+
+    const cnpjInput = screen.getByPlaceholderText('00.000.000/0001-00');
+    fireEvent.change(cnpjInput, { target: { value: '12.345.678/0001-95' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Validar' }));
+
+    const cnpjSuccessMsg = await screen.findByText('Este CNPJ é válido e estruturalmente correto!');
+    expect(cnpjSuccessMsg).toBeInTheDocument();
+
+    expect(mockFetch).toHaveBeenLastCalledWith(
+      'http://localhost:8080/validate/cnpj',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ cnpj: '12.345.678/0001-95' }),
+      })
+    );
+  });
+
+  it('handles errors when document validation fails', async () => {
+    const mockFetch = vi.fn().mockImplementation(() =>
+      Promise.resolve({
+        ok: false,
+        status: 400,
+        text: () => Promise.resolve('Bad Request'),
+      } as Response)
+    );
+    global.fetch = mockFetch;
+
+    render(<App />);
+
+    const docGenTab = screen.getByRole('button', { name: /Document Generator/i });
+    fireEvent.click(docGenTab);
+
+    const input = screen.getByPlaceholderText('000.000.000-00');
+    fireEvent.change(input, { target: { value: 'abc' } });
+
+    const validateBtn = screen.getByRole('button', { name: 'Validar' });
+    fireEvent.click(validateBtn);
+
+    const errorAlert = await screen.findByRole('alert');
+    expect(errorAlert).toBeInTheDocument();
+    expect(errorAlert).toHaveTextContent('Erro na API (400): Não foi possível validar o CPF no momento.');
+  });
 });
